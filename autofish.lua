@@ -275,6 +275,7 @@ local function sendWebhook(fishName, fishWeight)
 			title = fishWeight > 500 and "🔥 IKAN GEDE CUY! 🔥" or "Stats Update",
 			color = embedColor,
 			fields = {
+				{name = "Username:", value = "**@" .. plr.Name .. "**", inline = true},
 				{name = "Fish Name:", value = "**" .. fishName .. "**", inline = true},
 				{name = "Weight:", value = "**" .. fishWeight .. " Kg**", inline = true},
 				{name = "Rod Type:", value = "**" .. rodName .. "**", inline = true},
