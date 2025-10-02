@@ -176,6 +176,48 @@ if game.CoreGui:FindFirstChild("AutoFishGUI") then
 	game.CoreGui.AutoFishGUI:Destroy()
 end
 
+-- ===================================================================
+-- =================== FITUR BARU (ANTI-AFK & ANTI-LAG) ==============
+-- ===================================================================
+
+local Players = game:GetService("Players")
+local VirtualUser = game:GetService("VirtualUser")
+local LP = Players.LocalPlayer
+
+-- >> LOGIKA ANTI-AFK BARU (OTOMATIS ON)
+local antiAFKConn
+function StartAntiAFK()
+    if antiAFKConn then return end
+    antiAFKConn = LP.Idled:Connect(function()
+        local camCF = (workspace.CurrentCamera and workspace.CurrentCamera.CFrame) or CFrame.new()
+        VirtualUser:Button2Down(Vector2.new(0, 0), camCF)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0, 0), camCF)
+    end)
+    print("[AntiAFK] ON")
+end
+StartAntiAFK() -- Langsung aktifkan
+
+-- >> LOGIKA ANTI-LAG BARU (OTOMATIS ON)
+function applyAntiLag()
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if v:IsA("Model") and (v.Name:lower():find("tree") or v.Name:lower():find("rock") or v.Name:lower():find("bush")) then
+            v:Destroy()
+        elseif v:IsA("BasePart") and not v.CanCollide and not v:IsA("TrussPart") then
+             v.LocalTransparencyModifier = 1
+        elseif v:IsA("Texture") or v:IsA("Decal") then
+            v.Transparency = 1
+        end
+    end
+    settings().Rendering.QualityLevel = "Level01" -- Set grafis ke paling rendah
+    print("[AntiLag] Applied!")
+end
+applyAntiLag() -- Langsung aktifkan
+
+-- ===================================================================
+-- =================== SCRIPT UTAMA (TIDAK DIUBAH) ===================
+-- ===================================================================
+
 local rodOptions = {
 	"Basic Rod","Party Rod","Shark Rod","Piranha Rod","Flowers Rod",
 	"Thermo Rod","Trisula Rod","Feather Rod","Wave Rod","Duck Rod"
@@ -197,19 +239,6 @@ local webhookStats = {
 	startTime = tick(),
 	webhookEnabled = false
 }
-
--- Anti-AFK System
-local antiAFKEnabled = true
-spawn(function()
-	while wait(120) do
-		if antiAFKEnabled and plr.Character then
-			local humanoid = plr.Character:FindFirstChild("Humanoid")
-			if humanoid then
-				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-			end
-		end
-	end
-end)
 
 -- Request function
 local function req(body)
@@ -430,7 +459,7 @@ stat.Font = Enum.Font.Gotham
 stat.TextSize = 12
 stat.TextColor3 = Color3.fromRGB(230, 255, 210)
 stat.TextXAlignment = Enum.TextXAlignment.Left
-stat.Text = "Status: Standby | Anti-AFK: ON"
+stat.Text = "Status: Standby"
 
 do
 	local drag, s, p
@@ -603,6 +632,10 @@ do
 	end)
 end
 
+-- ===================================================================
+-- =================== LOGIKA AUTO FISHING (FINAL) ===================
+-- ===================================================================
+
 local running, looping = false, false
 local globalReleaseFlag = false
 
@@ -616,18 +649,22 @@ local function getRod(a)
 end
 
 local function forceEquipRod()
-	local rod = getRod()
-	if rod and plr.Character then
-		local hum = plr.Character:FindFirstChild("Humanoid")
-		if hum then pcall(function() hum:EquipTool(rod) end) end
-		REMOTE:FireServer("Equipped", rod)
-		return true
-	end
-	return false
+    local rod = getRod() or plr.Backpack:FindFirstChild(rodName)
+    if rod and plr.Character then
+        local hum = plr.Character:FindFirstChild("Humanoid")
+        if hum and hum:GetState() ~= Enum.HumanoidStateType.Dead then
+            pcall(function() hum:EquipTool(rod) end)
+            REMOTE:FireServer("Equipped", rod)
+            return true
+        end
+    end
+    return false
 end
 
 local function ensureEquipped()
-	if getRod() then forceEquipRod() end
+    if not (plr.Character and plr.Character:FindFirstChild(rodName)) then
+        forceEquipRod()
+    end
 end
 
 local function unequipRod()
@@ -638,13 +675,14 @@ local function unequipRod()
 end
 
 local function throwRod()
-	ensureEquipped()
-	local rod = getRod(true)
-	if rod then
-		REMOTE:FireServer(unpack({"Throw", rod, workspace:WaitForChild("Terrain")}))
-		return true
-	end
-	return false
+    ensureEquipped()
+    wait(0.1)
+    local rod = getRod(true)
+    if rod then
+        REMOTE:FireServer("Throw", rod, workspace:FindFirstChild("Terrain") or workspace)
+        return true
+    end
+    return false
 end
 
 local function getActiveRedBar(bars)
@@ -658,56 +696,40 @@ local function getActiveRedBar(bars)
 	return nil
 end
 
-local function seekAndImmediateFollow(white, bars)
-	local function getRedBar()
-		for _, c in pairs(bars:GetChildren()) do
-			if c:IsA("Frame") and c.Name == "RedBar" and c.Visible then
-				return c
-			end
-		end
-		return nil
-	end
-	local function getRedBarCenter(red)
-		local abs = red.AbsolutePosition or Vector2.new(450, 450)
-		local sz = red.AbsoluteSize or Vector2.new(30, 16)
-		return Vector2.new(math.floor(abs.X + sz.X / 2), math.floor(abs.Y + sz.Y / 2))
-	end
+local function getRedBarCenter(red)
+    local abs = red.AbsolutePosition or Vector2.new(450, 450)
+    local sz = red.AbsoluteSize or Vector2.new(30, 16)
+    return Vector2.new(math.floor(abs.X + sz.X / 2), math.floor(abs.Y + sz.Y / 2))
+end
 
-	local holded = false
-	spawn(function()
-		while plr.PlayerGui:FindFirstChild("Reeling") and plr.PlayerGui.Reeling.Enabled do
-			local red = getRedBar()
-			local whiteBar = bars:FindFirstChild("WhiteBar")
-			if red and red.Visible and whiteBar then
-				whiteBar.Position = red.Position
-				whiteBar.Size = UDim2.new(red.Size.X.Scale, red.Size.X.Offset, whiteBar.Size.Y.Scale, whiteBar.Size.Y.Offset)
-			else
-				break
-			end
-			wait(0.005)
-		end
-	end)
-	
-	while plr.PlayerGui:FindFirstChild("Reeling") and plr.PlayerGui.Reeling.Enabled do
-		local red = getRedBar()
-		if red and red.Visible then
-			local redCt = getRedBarCenter(red)
-			VirtualInputManager:SendMouseButtonEvent(redCt.X, redCt.Y, 0, true, game, 1)
-			holded = true
-		else
-			break
-		end
-		wait(0.01)
-	end
-	
-	if holded then
-		local red = getRedBar()
-		if red then
-			local redCt = getRedBarCenter(red)
-			VirtualInputManager:SendMouseButtonEvent(redCt.X, redCt.Y, 0, false, game, 1)
-		end
-	end
-	return true
+local function seekAndImmediateFollow(white, bars)
+    white.Size = UDim2.new(1, 0, white.Size.Y.Scale, 0)
+    white.Position = UDim2.new(0, 0, white.Position.Y.Scale, 0)
+
+    local holded = false
+    local red = getActiveRedBar(bars)
+    
+    if red and red.Visible then
+        local redCt = getRedBarCenter(red)
+        VirtualInputManager:SendMouseButtonEvent(redCt.X, redCt.Y, 0, true, game, 1)
+        holded = true
+    end
+
+    while plr.PlayerGui:FindFirstChild("Reeling") and plr.PlayerGui.Reeling.Enabled and not globalReleaseFlag do
+        wait(0.1)
+    end
+    
+    if holded then
+        red = getActiveRedBar(bars) or red
+        if red then
+            local redCt = getRedBarCenter(red)
+            VirtualInputManager:SendMouseButtonEvent(redCt.X, redCt.Y, 0, false, game, 1)
+        else
+            local lastPos = red and getRedBarCenter(red) or Vector2.new(450,450)
+            VirtualInputManager:SendMouseButtonEvent(lastPos.X, lastPos.Y, 0, false, game, 1)
+        end
+    end
+    return true
 end
 
 local fishDetected = false
@@ -722,69 +744,72 @@ end
 setupBiteListener()
 
 local function autoFishLoop()
-	while running do
-		stat.Text = "Status: Standby | Anti-AFK: ON"
-		wait(0.7)
+    if looping then return end
+    looping = true
+	
+    ensureEquipped()
+    wait(0.5)
+
+    while running do
+		stat.Text = "Status: Standby"
+		
 		if not workspace:FindFirstChild("Pelampung-" .. plr.Name) then
-			stat.Text = "Status: Throw | Anti-AFK: ON"
+			stat.Text = "Status: Throw"
 			throwRod()
 		end
+
 		wait(0.38)
-		stat.Text = "Status: Wait Fish Bait | Anti-AFK: ON"
+		stat.Text = "Status: Wait Fish Bait"
 		waitingBite, fishDetected = true, false
 		local t0 = tick()
-		while running and not fishDetected and (tick() - t0 < 35) do
+		
+        while running and not fishDetected and (tick() - t0 < 35) do
 			wait(0.22)
-			if not workspace:FindFirstChild("Pelampung-" .. plr.Name) then
-				throwRod()
-			end
-			stat.Text = "Status: Wait Fish Bait... " .. math.floor(tick() - t0) .. "s | Anti-AFK: ON"
+			stat.Text = "Status: Wait Fish Bait... " .. math.floor(tick() - t0) .. "s"
 		end
 		waitingBite = false
-		if not running then
-			break
-		end
-		if not fishDetected then
-			stat.Text = "Status: Timeout, retry | Anti-AFK: ON"
+		
+        if not running then break end
+		
+        if not fishDetected then
+			stat.Text = "Status: Timeout, retry"
 			wait(1.1)
 		else
-			stat.Text = "Status: Perfect Overlap | Anti-AFK: ON"
-			local bars = plr.PlayerGui.Reeling.Frame and plr.PlayerGui.Reeling.Frame:FindFirstChild("Frame")
-			local white = bars and bars:FindFirstChild("WhiteBar")
-			while plr.PlayerGui.Reeling.Enabled and not globalReleaseFlag do
-				if white and white.Visible then
-					seekAndImmediateFollow(white, bars)
-					break
-				end
-				if not running or not plr.PlayerGui.Reeling.Enabled then
-					break
-				end
-				wait(0.01)
-			end
+			stat.Text = "Status: 100% Win Rate"
 			
-			-- Send webhook after fish caught
-			wait(0.5)
+            local reelingGui = plr.PlayerGui:WaitForChild("Reeling", 5)
+            if reelingGui then
+                local bars = reelingGui.Frame and reelingGui.Frame:FindFirstChild("Frame")
+                local white = bars and bars:FindFirstChild("WhiteBar")
+                
+                if white and white.Visible then
+                    seekAndImmediateFollow(white, bars)
+                end
+            end
+			
+			wait(1.5)
 			local fishName, fishWeight = getLatestFishInfo()
 			if fishWeight > 0 then
 				webhookStats.totalFishCaught = webhookStats.totalFishCaught + 1
 				sendWebhook(fishName, fishWeight)
 			end
 		end
-		stat.Text = "Status: Standby | Anti-AFK: ON"
+		
+        stat.Text = "Status: Standby (Next Round)"
 		fishDetected = false
-		wait(0.7)
+		wait(1)
 	end
-	stat.Text = "Status: Standby | Anti-AFK: ON"
+    
+	stat.Text = "Status: Standby"
+    looping = false
 	waitingBite = false
 	fishDetected = false
 end
 
-btn.Text = "Start Auto Fishing"
-btn.BackgroundColor3 = Color3.fromRGB(110, 212, 140)
 btn.MouseButton1Click:Connect(function()
 	running = not running
 	btn.Text = running and "Stop Auto Fishing" or "Start Auto Fishing"
-	stat.Text = running and "Status: Loading... | Anti-AFK: ON" or "Status: Standby | Anti-AFK: ON"
+	stat.Text = running and "Status: Loading..." or "Status: Standby"
 	if running then
 		globalReleaseFlag = false
 		spawn(autoFishLoop)
