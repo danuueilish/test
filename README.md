@@ -1,1 +1,1 @@
-# free palesstine
+# free palestine
